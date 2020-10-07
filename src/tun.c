@@ -39,6 +39,10 @@
 #define IFCONFIGPATH "PATH=/sbin:/bin "
 #endif
 
+#ifndef ROUTEPATH
+#define ROUTEPATH "PATH=/sbin:/bin "
+#endif
+
 #ifdef WINDOWS32
 #include "windows.h"
 #include <winioctl.h>
@@ -151,7 +155,7 @@ get_device(char *device, int device_len, const char *wanted_dev)
 	status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, TAP_ADAPTER_KEY, 0, KEY_READ, &adapter_key);
 
 	if (status != ERROR_SUCCESS) {
-		warnx("Error opening registry key " TAP_ADAPTER_KEY );
+		warnx("Error opening registry key " TAP_ADAPTER_KEY);
 		return;
 	}
 
@@ -171,7 +175,7 @@ get_device(char *device, int device_len, const char *wanted_dev)
 		if (status == ERROR_NO_MORE_ITEMS) {
 			break;
 		} else if (status != ERROR_SUCCESS) {
-			warnx("Error enumerating subkeys of registry key " TAP_ADAPTER_KEY );
+			warnx("Error enumerating subkeys of registry key " TAP_ADAPTER_KEY);
 			break;
 		}
 
@@ -412,16 +416,16 @@ open_tun(const char *tun_device)
 	int tun_fd;
 	char tun_name[50];
 
+	if (tun_device != NULL) {
 #ifdef DARWIN
-	if (!strncmp(tun_device, "utun", 4)) {
-		tun_fd = open_utun(tun_device);
-		if (tun_fd >= 0) {
-			return tun_fd;
+		if (!strncmp(tun_device, "utun", 4)) {
+			tun_fd = open_utun(tun_device);
+			if (tun_fd >= 0) {
+				return tun_fd;
+			}
 		}
-	}
 #endif
 
-	if (tun_device != NULL) {
 		snprintf(tun_name, sizeof(tun_name), "/dev/%s", tun_device);
 		strncpy(if_name, tun_device, sizeof(if_name));
 		if_name[sizeof(if_name)-1] = '\0';
@@ -503,20 +507,24 @@ read_tun(int tun_fd, char *buf, size_t len)
 	}
 }
 #else
-int
-write_tun(int tun_fd, char *data, size_t len)
+static int
+tun_uses_header(void)
 {
 #if defined (FREEBSD) || defined (NETBSD)
 	/* FreeBSD/NetBSD has no header */
-	int header = 0;
+	return 0;
 #elif defined (DARWIN)
 	/* Darwin tun has no header, Darwin utun does */
-	int header = !strncmp(if_name, "utun", 4);
+	return !strncmp(if_name, "utun", 4);
 #else  /* LINUX/OPENBSD */
-	int header = 1;
+	return 1;
 #endif
+}
 
-	if (!header) {
+int
+write_tun(int tun_fd, char *data, size_t len)
+{
+	if (!tun_uses_header()) {
 		data += 4;
 		len -= 4;
 	} else {
@@ -547,17 +555,7 @@ write_tun(int tun_fd, char *data, size_t len)
 ssize_t
 read_tun(int tun_fd, char *buf, size_t len)
 {
-#if defined (FREEBSD) || defined (NETBSD)
-	/* FreeBSD/NetBSD has no header */
-	int header = 0;
-#elif defined (DARWIN)
-	/* Darwin tun has no header, Darwin utun does */
-	int header = !strncmp(if_name, "utun", 4);
-#else  /* LINUX/OPENBSD */
-	int header = 1;
-#endif
-
-	if (!header) {
+	if (!tun_uses_header()) {
 		int bytes;
 		memset(buf, 0, 4);
 
@@ -624,12 +622,12 @@ tun_setip(const char *ip, const char *other_ip, int netbits)
 	netip.s_addr = inet_addr(ip);
 	netip.s_addr = netip.s_addr & net.s_addr;
 	r = system(cmdline);
-	if(r != 0) {
+	if (r != 0) {
 		return r;
 	} else {
 
 		snprintf(cmdline, sizeof(cmdline),
-				"/sbin/route add %s/%d %s",
+				ROUTEPATH "route add %s/%d %s",
 				inet_ntoa(netip), netbits, ip);
 	}
 	fprintf(stderr, "Adding route %s/%d to %s\n", inet_ntoa(netip), netbits, ip);

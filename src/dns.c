@@ -260,7 +260,6 @@ int dns_encode_ns_response(char *buf, size_t buflen, struct query *q,
 
 	header->qdcount = htons(1);
 	header->ancount = htons(1);
-	header->arcount = htons(1);
 
 	/* pointer to start of name */
 	name = 0xc000 | ((p - buf) & 0x3fff);
@@ -299,21 +298,29 @@ int dns_encode_ns_response(char *buf, size_t buflen, struct query *q,
 	putbyte(&p, 's');
 	putshort(&p, topname);			/* Name Server */
 
-	/* Additional data (A-record of NS server) */
-	CHECKLEN(12);
-	putshort(&p, nsname);			/* Name Server */
-	putshort(&p, T_A);			/* Type */
-	putshort(&p, C_IN);			/* Class */
-	putlong(&p, 3600);			/* TTL */
-	putshort(&p, 4);			/* Data length */
+	/* Do we have an IPv4 address to send? */
+	if (q->destination.ss_family == AF_INET) {
+		struct sockaddr_in *dest = (struct sockaddr_in *) &q->destination;
 
-	/* ugly hack to output IP address */
-	ipp = (char *) &q->destination;
-	CHECKLEN(4);
-	putbyte(&p, *(ipp++));
-	putbyte(&p, *(ipp++));
-	putbyte(&p, *(ipp++));
-	putbyte(&p, *ipp);
+		/* One additional record coming */
+		header->arcount = htons(1);
+
+		/* Additional data (A-record of NS server) */
+		CHECKLEN(12);
+		putshort(&p, nsname);		/* Name Server */
+		putshort(&p, T_A);		/* Type */
+		putshort(&p, C_IN);		/* Class */
+		putlong(&p, 3600);		/* TTL */
+		putshort(&p, 4);		/* Data length */
+
+		/* ugly hack to output IP address */
+		ipp = (char *) &dest->sin_addr.s_addr;
+		CHECKLEN(4);
+		putbyte(&p, *(ipp++));
+		putbyte(&p, *(ipp++));
+		putbyte(&p, *(ipp++));
+		putbyte(&p, *ipp);
+	}
 
 	len = p - buf;
 	return len;
@@ -323,11 +330,16 @@ int dns_encode_ns_response(char *buf, size_t buflen, struct query *q,
  * www.topdomain . Mostly same as dns_encode_ns_response() above */
 int dns_encode_a_response(char *buf, size_t buflen, struct query *q)
 {
+	struct sockaddr_in *dest = (struct sockaddr_in *) &q->destination;
 	HEADER *header;
 	int len;
 	short name;
 	char *ipp;
 	char *p;
+
+	/* Check if we have an IPv4 address to send */
+	if (q->destination.ss_family != AF_INET)
+		return -1;
 
 	if (buflen < sizeof(HEADER))
 		return 0;
@@ -355,19 +367,19 @@ int dns_encode_a_response(char *buf, size_t buflen, struct query *q)
 	/* Query section */
 	putname(&p, buflen - (p - buf), q->name); /* Name */
 	CHECKLEN(4);
-	putshort(&p, q->type); /* Type */
-	putshort(&p, C_IN); /* Class */
+	putshort(&p, q->type);	/* Type */
+	putshort(&p, C_IN);	/* Class */
 
 	/* Answer section */
 	CHECKLEN(12);
-	putshort(&p, name); /* Name */
-	putshort(&p, q->type); /* Type */
-	putshort(&p, C_IN); /* Class */
-	putlong(&p, 3600); /* TTL */
-	putshort(&p, 4); /* Data length */
+	putshort(&p, name);	/* Name */
+	putshort(&p, q->type);	/* Type */
+	putshort(&p, C_IN);	/* Class */
+	putlong(&p, 3600);	/* TTL */
+	putshort(&p, 4);	/* Data length */
 
 	/* ugly hack to output IP address */
-	ipp = (char *) &q->destination;
+	ipp = (char *) &dest->sin_addr.s_addr;
 	CHECKLEN(4);
 	putbyte(&p, *(ipp++));
 	putbyte(&p, *(ipp++));
@@ -436,7 +448,7 @@ int dns_decode(char *buf, size_t buflen, struct query *q, qr_t qr, char *packet,
 
 	switch (qr) {
 	case QR_ANSWER:
-		if(qdcount < 1) {
+		if (qdcount < 1) {
 			/* We need a question */
 			return -1;
 		}
@@ -492,12 +504,27 @@ int dns_decode(char *buf, size_t buflen, struct query *q, qr_t qr, char *packet,
 			readlong(packet, &data, &ttl);
 			readshort(packet, &data, &rlen);
 
-			memset(name, 0, sizeof(name));
-			readname(packet, packetlen, &data, name, sizeof(name) - 1);
-			name[sizeof(name)-1] = '\0';
-			strncpy(buf, name, buflen);
-			buf[buflen - 1] = '\0';
-			rv = strlen(buf);
+			if (type == T_CNAME) {
+				/* For tunnels, query type A has CNAME type answer */
+				memset(name, 0, sizeof(name));
+				readname(packet, packetlen, &data, name, sizeof(name) - 1);
+				name[sizeof(name)-1] = '\0';
+				strncpy(buf, name, buflen);
+				buf[buflen - 1] = '\0';
+				rv = strlen(buf);
+			}
+			if (type == T_A) {
+				/* Answer type A includes only 4 bytes.
+				   Not used for tunneling. */
+				rv = MIN(rlen, sizeof(rdata));
+				rv = readdata(packet, &data, rdata, rv);
+				if (rv >= 2 && buf) {
+					rv = MIN(rv, buflen);
+					memcpy(buf, rdata, rv);
+				} else {
+					rv = 0;
+				}
+			}
 		}
 		else if ((type == T_MX || type == T_SRV) && buf) {
 			/* We support 250 records, 250*(255+header) ~= 64kB.
@@ -513,7 +540,7 @@ int dns_decode(char *buf, size_t buflen, struct query *q, qr_t qr, char *packet,
 
 			memset(names, 0, sizeof(names));
 
-			for (i=0; i < ancount; i++) {
+			for (i = 0; i < ancount; i++) {
 				readname(packet, packetlen, &data, name, sizeof(name));
 				CHECKLEN(12);
 				readshort(packet, &data, &type);

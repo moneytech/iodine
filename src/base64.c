@@ -38,7 +38,7 @@ inline static void base64_reverse_init(void)
 	unsigned char c;
 
 	if (!reverse_init) {
-		memset (rev64, 0, 256);
+		memset(rev64, 0, 256);
 		for (i = 0; i < 64; i++) {
 			c = cb64[i];
 			rev64[(int) c] = i;
@@ -85,7 +85,7 @@ static int base64_encode(char *buf, size_t *buflen, const void *data,
 
 		if (iout >= *buflen || iin >= size)
 			break;
-		buf[iout] = cb64[((udata[iin] & 0x0f) << 2 ) |
+		buf[iout] = cb64[((udata[iin] & 0x0f) << 2) |
 				  ((iin + 1 < size) ?
 				   ((udata[iin + 1] & 0xc0) >> 6) : 0)];
 		iin++;			/* 1 complete, iin=2 */
@@ -126,7 +126,7 @@ static int base64_decode(void *buf, size_t *buflen, const char *str,
 	int iout = 0;	/* to-be-filled output byte */
 	int iin = 0;	/* next input char to use in decoding */
 
-	base64_reverse_init ();
+	base64_reverse_init();
 
 	/* Note: Don't bother to optimize manually. GCC optimizes
 	   better(!) when using simplistic array indexing. */

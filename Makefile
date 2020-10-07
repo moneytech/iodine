@@ -2,6 +2,7 @@ prefix?=/usr/local
 sbindir=$(prefix)/sbin
 datadir=$(prefix)/share
 mandir=$(datadir)/man
+docdir=$(datadir)/doc
 
 DESTDIR=
 
@@ -28,6 +29,9 @@ install: all
 	$(MKDIR) $(MKDIR_FLAGS) $(DESTDIR)$(mandir)/man8
 	$(INSTALL) $(INSTALL_FLAGS) man/iodine.8 $(DESTDIR)$(mandir)/man8/iodine.8
 	chmod 644 $(DESTDIR)$(mandir)/man8/iodine.8
+	$(MKDIR) $(MKDIR_FLAGS) $(DESTDIR)$(docdir)/iodine
+	$(INSTALL) $(INSTALL_FLAGS) README.md $(DESTDIR)$(docdir)/iodine/README.md
+	chmod 644 $(DESTDIR)$(docdir)/iodine/README.md
 
 uninstall:
 	$(RM) $(RM_FLAGS) $(DESTDIR)$(sbindir)/iodine
@@ -36,7 +40,7 @@ uninstall:
 
 test: all
 	@echo "!! The check library is required for compiling and running the tests"
-	@echo "!! Get it at http://check.sf.net"
+	@echo "!! Get it at https://libcheck.github.io/check/"
 	@(cd tests; $(MAKE) TARGETOS=$(TARGETOS) all)
 
 clean:
@@ -53,7 +57,7 @@ iodine-latest:
 	@LANG=en_US date >> iodine-latest/VERSION.txt
 	@echo "Git version: " >> iodine-latest/VERSION.txt
 	@git rev-parse HEAD >> iodine-latest/VERSION.txt
-	@for i in README.md CHANGELOG TODO; do cp $$i iodine-latest/$$i.txt; done
+	@for i in README.md CHANGELOG; do cp $$i iodine-latest/$$i.txt; done
 	@unix2dos iodine-latest/*
 
 #non-PIE build for old android
